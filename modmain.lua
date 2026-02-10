@@ -120,6 +120,43 @@ local function RobotPostInit(inst)
     inst.components.container:WidgetSetup("robot_inventory")
     inst.components.container.canbeopened = true
 
+    -- 修复inventory和container在同一entity上的事件冲突：
+    -- container_replica监听了entity上所有的itemget/itemlose事件，
+    -- 当inventory组件触发itemget(slot=1)时，container_replica会误将
+    -- inventory的物品同步到container的slot 1，导致第一格显示异常。
+    -- 解决方案：替换container_replica的事件回调，精确判断事件来源。
+    if inst.replica.container ~= nil then
+        local replica = inst.replica.container
+        local _orig_onitemget = replica._onitemget
+        local _orig_onitemlose = replica._onitemlose
+
+        if _orig_onitemget ~= nil then
+            inst:RemoveEventCallback("itemget", _orig_onitemget)
+            replica._onitemget = function(inst, data)
+                -- 精确判断：data.item必须是container.slots[data.slot]中的物品
+                if inst.components.container
+                    and inst.components.container.slots[data.slot] == data.item then
+                    _orig_onitemget(inst, data)
+                end
+            end
+            inst:ListenForEvent("itemget", replica._onitemget)
+        end
+
+        if _orig_onitemlose ~= nil then
+            inst:RemoveEventCallback("itemlose", _orig_onitemlose)
+            replica._onitemlose = function(inst, data)
+                -- 精确判断：只有当container的该slot确实为空时才同步移除
+                -- （inventory移除slot 1时，container slot 1可能仍有物品，不应清空）
+                if inst.components.container
+                    and data.slot <= inst.components.container.numslots
+                    and inst.components.container.slots[data.slot] == nil then
+                    _orig_onitemlose(inst, data)
+                end
+            end
+            inst:ListenForEvent("itemlose", replica._onitemlose)
+        end
+    end
+
     -- 保鲜功能
     if freshness_rate ~= nil then
         -- 物品进入container时应用保鲜
