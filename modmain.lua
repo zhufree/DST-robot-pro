@@ -10,11 +10,49 @@ AddRecipe2("storage_robot",
         Ingredient("gears", 4),
         Ingredient("scrap", 8),
     },
-    TECH.NONE,
+    TECH.SCIENCE_ONE,
     nil, {"TOOLS", "MODS"}
 )
 
--- 容器UI定义
+---------------------------------------------------------------------------------------------------
+-- 自定义Action：提取全部物品（从机器人container转移到玩家inventory）
+---------------------------------------------------------------------------------------------------
+local ROBOT_EXTRACT = AddAction("ROBOT_EXTRACT", "提取全部", function(act)
+    local doer = act.doer
+    local target = act.target
+    if doer == nil or target == nil then return false end
+    if doer.components.inventory == nil then return false end
+    if target.components.container == nil then return false end
+
+    local container = target.components.container
+
+    -- 关键修复：先关闭容器，防止GiveItem把物品塞回已打开的机器人container
+    container:Close()
+
+    target._extracting = true
+    local transferred = 0
+    for slot = 1, container.numslots do
+        local item = container.slots[slot]
+        if item ~= nil then
+            if not item:IsValid() or item.components.inventoryitem == nil then
+                container.slots[slot] = nil
+            else
+                local removed = container:RemoveItemBySlot(slot)
+                if removed ~= nil then
+                    -- GiveItem可能因背包满而失败，此时掉落到地上
+                    if not doer.components.inventory:GiveItem(removed) then
+                        doer.components.inventory:DropItem(removed, true, false)
+                    end
+                    transferred = transferred + 1
+                end
+            end
+        end
+    end
+    target._extracting = nil
+    return true
+end)
+
+-- 容器UI定义（需要在Action注册之后，因为containers.lua中引用了ROBOT_EXTRACT）
 modimport("scripts/containers.lua")
 -- 物品存储功能（container、STORE hook、保鲜、replica修复）
 modimport("scripts/robot_storage.lua")

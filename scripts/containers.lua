@@ -10,11 +10,14 @@ local robot_container_params = {
         pos = GLOBAL.Vector3(0, 200, 0),
         side_align_tip = 160,
         buttoninfo = {
-            text = "设置",
+            text = "提取全部",
             position = GLOBAL.Vector3(0, -165, 0),
             fn = function(inst, doer)
-                if doer and doer.HUD then
-                    -- 设置按钮回调，暂留空
+                local act = GLOBAL.ACTIONS.ROBOT_EXTRACT
+                if inst.components.container ~= nil then
+                    GLOBAL.BufferedAction(doer, inst, act):Do()
+                elseif inst.replica.container ~= nil and not inst.replica.container:IsBusy() then
+                    GLOBAL.SendRPCToServer(GLOBAL.RPC.DoWidgetButtonAction, act.code, inst, act.mod_name)
                 end
             end,
         },
