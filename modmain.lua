@@ -6,6 +6,12 @@ local Ingredient = GLOBAL.Ingredient
 local TECH = GLOBAL.TECH
 
 ---------------------------------------------------------------------------------------------------
+-- 字符串定义
+---------------------------------------------------------------------------------------------------
+GLOBAL.STRINGS.NAMES.ROBOT_CONTROLLER = "机器人控制器"
+GLOBAL.STRINGS.RECIPE_DESC.ROBOT_CONTROLLER = "用于配置和控制瓦器人"
+
+---------------------------------------------------------------------------------------------------
 -- 注册prefab和配方
 ---------------------------------------------------------------------------------------------------
 PrefabFiles = { "robot_controller" }
@@ -27,7 +33,10 @@ AddRecipe2("robot_controller",
         Ingredient("gears", 1),
     },
     TECH.SCIENCE_ONE,
-    nil, {"TOOLS", "MODS"}
+    {
+        atlas = "images/inventoryimages/robot_controller.xml",
+        image = "robot_controller.tex",
+    }, {"TOOLS", "MODS"}
 )
 
 ---------------------------------------------------------------------------------------------------
