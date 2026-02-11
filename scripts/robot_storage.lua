@@ -1,7 +1,9 @@
 local ACTIONS = GLOBAL.ACTIONS
 local StorageRobotCommon = GLOBAL.require("prefabs/storage_robot_common")
+local SettingsDef = GLOBAL.require("robot_settings_def")
 
-local freshness_rate = GetModConfigData("freshness_rate") or 0.5
+-- 全局默认值（从mod配置读取，作为新机器人的初始值）
+local default_freshness = GetModConfigData("freshness_rate") or SettingsDef.DEFAULT_FRESHNESS
 
 ---------------------------------------------------------------------------------------------------
 -- Hook FindContainerWithItem：优先返回机器人自身作为存储目标
@@ -45,14 +47,25 @@ ACTIONS.STORE.fn = function(act)
 end
 
 ---------------------------------------------------------------------------------------------------
+-- 获取机器人的保鲜速率（per-robot设置优先，否则用全局默认值）
+---------------------------------------------------------------------------------------------------
+local function GetFreshnessRate(inst)
+    if inst._robot_settings and inst._robot_settings.freshness_rate ~= nil then
+        return inst._robot_settings.freshness_rate
+    end
+    return default_freshness
+end
+
+---------------------------------------------------------------------------------------------------
 -- 保鲜辅助函数
 ---------------------------------------------------------------------------------------------------
-local function SetItemFreshness(item)
+local function SetItemFreshness(inst, item)
     if item and item.components.perishable then
-        if freshness_rate == 0 then
+        local rate = GetFreshnessRate(inst)
+        if rate == 0 then
             item.components.perishable:SetLocalMultiplier(0)
         else
-            item.components.perishable:SetLocalMultiplier(freshness_rate)
+            item.components.perishable:SetLocalMultiplier(rate)
         end
     end
 end
@@ -66,7 +79,7 @@ end
 local function ApplyFreshnessToAllSlots(inst)
     if inst.components.container and inst.components.container.slots then
         for k, v in pairs(inst.components.container.slots) do
-            SetItemFreshness(v)
+            SetItemFreshness(inst, v)
         end
     end
 end
@@ -181,34 +194,71 @@ local function RobotStoragePostInit(inst)
         end
     end
 
+    -- 初始化per-robot设置（默认值来自mod配置）
+    if inst._robot_settings == nil then
+        inst._robot_settings = {
+            freshness_rate = default_freshness,
+            harvest_materials = true,
+            harvest_foods = false,
+        }
+    end
+
+    -- 暴露刷新函数供RPC回调使用
+    inst._ApplyFreshnessToAllSlots = ApplyFreshnessToAllSlots
+
     -- 保鲜功能
-    if freshness_rate ~= nil then
-        inst:ListenForEvent("itemget", function(inst, data)
-            if data.item and inst.components.container then
-                for k, v in pairs(inst.components.container.slots) do
-                    if v == data.item then
-                        SetItemFreshness(data.item)
-                        return
-                    end
+    inst:ListenForEvent("itemget", function(inst, data)
+        if data.item and inst.components.container then
+            for k, v in pairs(inst.components.container.slots) do
+                if v == data.item then
+                    SetItemFreshness(inst, data.item)
+                    return
                 end
             end
-        end)
-
-        inst:ListenForEvent("itemlose", function(inst, data)
-            if data.prev_item then
-                ResetItemFreshness(data.prev_item)
-            end
-        end)
-
-        local _OnLoad = inst.OnLoad
-        inst.OnLoad = function(inst, data, newents)
-            if _OnLoad then
-                _OnLoad(inst, data, newents)
-            end
-            inst:DoTaskInTime(0, function()
-                ApplyFreshnessToAllSlots(inst)
-            end)
         end
+    end)
+
+    inst:ListenForEvent("itemlose", function(inst, data)
+        if data.prev_item then
+            ResetItemFreshness(data.prev_item)
+        end
+    end)
+
+    -- OnSave/OnLoad：持久化_robot_settings
+    local _OnSave = inst.OnSave
+    inst.OnSave = function(inst, data)
+        if _OnSave then
+            _OnSave(inst, data)
+        end
+        if inst._robot_settings then
+            data.robot_settings = {
+                freshness_rate = inst._robot_settings.freshness_rate,
+                harvest_materials = inst._robot_settings.harvest_materials,
+                harvest_foods = inst._robot_settings.harvest_foods,
+            }
+        end
+    end
+
+    local _OnLoad = inst.OnLoad
+    inst.OnLoad = function(inst, data, newents)
+        if _OnLoad then
+            _OnLoad(inst, data, newents)
+        end
+        if data and data.robot_settings then
+            inst._robot_settings = inst._robot_settings or {}
+            if data.robot_settings.freshness_rate ~= nil then
+                inst._robot_settings.freshness_rate = data.robot_settings.freshness_rate
+            end
+            if data.robot_settings.harvest_materials ~= nil then
+                inst._robot_settings.harvest_materials = data.robot_settings.harvest_materials
+            end
+            if data.robot_settings.harvest_foods ~= nil then
+                inst._robot_settings.harvest_foods = data.robot_settings.harvest_foods
+            end
+        end
+        inst:DoTaskInTime(0, function()
+            ApplyFreshnessToAllSlots(inst)
+        end)
     end
 end
 

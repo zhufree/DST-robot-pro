@@ -1,5 +1,6 @@
 local ACTIONS = GLOBAL.ACTIONS
 local StorageRobotCommon = GLOBAL.require("prefabs/storage_robot_common")
+local SettingsDef = GLOBAL.require("robot_settings_def")
 local BufferedAction = GLOBAL.BufferedAction
 local TUNING = GLOBAL.TUNING
 
@@ -15,46 +16,27 @@ local function RobotSay(inst, msg)
 end
 
 ---------------------------------------------------------------------------------------------------
--- 读取采集配置，构建可采集prefab集合
+-- 构建 prefab -> category_id 的映射表（静态，只建一次）
 ---------------------------------------------------------------------------------------------------
-local auto_harvest = GetModConfigData("auto_harvest")
-if auto_harvest == nil then auto_harvest = true end
-
-local HARVESTABLE_PREFABS = {}
-
-local HARVEST_CONFIG = {
-    { config = "harvest_grass",         prefabs = {"grass"} },
-    { config = "harvest_sapling",       prefabs = {"sapling"} },
-    { config = "harvest_berries",       prefabs = {"berrybush", "berrybush2"} },
-    { config = "harvest_berries_juicy", prefabs = {"berrybush_juicy"} },
-    { config = "harvest_mushroom",      prefabs = {"red_mushroom", "green_mushroom", "blue_mushroom"} },
-    { config = "harvest_reeds",         prefabs = {"reeds", "reeds_water"} },
-    { config = "harvest_carrot",        prefabs = {"carrot_planted"} },
-    { config = "harvest_cave_banana",   prefabs = {"cave_banana_tree"} },
-    { config = "harvest_lichen",        prefabs = {"lichen"} },
-    { config = "harvest_rock_avocado",  prefabs = {"rock_avocado_bush"} },
-    { config = "harvest_monkeytail",    prefabs = {"monkeytail"} },
-}
-
-if auto_harvest then
-    for _, entry in ipairs(HARVEST_CONFIG) do
-        local enabled = GetModConfigData(entry.config)
-        if enabled then
-            for _, prefab in ipairs(entry.prefabs) do
-                HARVESTABLE_PREFABS[prefab] = true
-            end
-        end
+local PREFAB_TO_CATEGORY = {}
+for _, cat in ipairs(SettingsDef.HARVEST_CATEGORIES) do
+    for _, prefab in ipairs(cat.prefabs) do
+        PREFAB_TO_CATEGORY[prefab] = cat.id
     end
 end
 
-if not auto_harvest or GLOBAL.next(HARVESTABLE_PREFABS) == nil then
-    print("[RobotHarvest] auto_harvest disabled or no prefabs configured, skipping.")
-    return
-end
+---------------------------------------------------------------------------------------------------
+-- 检查某个机器人是否允许采集某个prefab（根据per-robot设置）
+---------------------------------------------------------------------------------------------------
+local function CanHarvestPrefab(inst, prefab)
+    local cat_id = PREFAB_TO_CATEGORY[prefab]
+    if cat_id == nil then return false end
 
-print("[RobotHarvest] Enabled. Harvestable prefabs:")
-for k, _ in GLOBAL.pairs(HARVESTABLE_PREFABS) do
-    print("  - " .. k)
+    local settings = inst._robot_settings
+    if settings == nil then return false end
+
+    local key = "harvest_" .. cat_id
+    return settings[key] == true
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -77,7 +59,7 @@ local function FindHarvestTarget(inst)
     local platform = inst:GetCurrentPlatform()
 
     for _, ent in ipairs(ents) do
-        if HARVESTABLE_PREFABS[ent.prefab]
+        if CanHarvestPrefab(inst, ent.prefab)
             and ent.components.pickable ~= nil
             and ent.components.pickable:CanBePicked()
             and ent:IsOnPassablePoint()
